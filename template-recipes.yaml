@@ -1,0 +1,92 @@
+templates:
+
+  - id: employee_satisfaction
+    name: Employee Satisfaction Survey
+    category: Employee & Culture
+    audience: employee
+    purpose: Measure overall employee satisfaction and engagement
+    questions:
+      - id: satisfaction
+        label: How satisfied are you with your current work situation?
+        type: scale
+        range: [1, 5]
+        required: true
+
+      - id: impact
+        label: Do you feel your work has impact?
+        type: scale
+        range: [1, 5]
+        required: true
+
+      - id: support
+        label: How supported do you feel by your team and leadership?
+        type: scale
+        range: [1, 5]
+        required: true
+
+      - id: frustration
+        label: What currently frustrates you the most?
+        type: text
+        multiline: true
+
+      - id: improvement
+        label: What would improve your day-to-day work?
+        type: text
+        multiline: true
+
+
+  - id: employee_pulse
+    name: Employee Pulse Check
+    category: Employee & Culture
+    audience: employee
+    purpose: Quick recurring pulse on team mood and workload
+    questions:
+      - id: mood
+        label: How is your overall mood at work right now?
+        type: scale
+        range: [1, 5]
+        required: true
+
+      - id: workload
+        label: How manageable is your workload?
+        type: scale
+        range: [1, 5]
+        required: true
+
+      - id: blocker
+        label: Is anything blocking you at the moment?
+        type: text
+        multiline: true
+
+
+  - id: product_feedback
+    name: Product Feedback Survey
+    category: Customer & Product Feedback
+    audience: customer
+    purpose: Collect structured feedback on a product
+    questions:
+      - id: satisfaction
+        label: How satisfied are you with the product?
+        type: scale
+        range: [1, 5]
+        required: true
+
+      - id: usefulness
+        label: How useful is the product for your needs?
+        type: scale
+        range: [1, 5]
+        required: true
+
+      - id: features
+        label: Which features do you use most?
+        type: multi_select
+        options:
+          - Core functionality
+          - Additional features
+          - Integrations
+          - Reporting / Insights
+
+      - id: improvement
+        label: What is missing or not working well?
+        type: text
+        multiline: true
