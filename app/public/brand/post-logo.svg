@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-label="Post logo">
+  <rect width="256" height="256" fill="#f3b500" />
+  <g fill="#e10600">
+    <rect x="0" y="104" width="128" height="48" />
+    <rect x="40" y="48" width="48" height="160" />
+  </g>
+  <g fill="#f3b500">
+    <rect x="16" y="114" width="96" height="28" />
+    <rect x="50" y="80" width="28" height="96" />
+  </g>
+  <g fill="#0b0b0b">
+    <rect x="140" y="48" width="48" height="160" />
+    <rect x="140" y="48" width="80" height="48" />
+    <rect x="140" y="104" width="80" height="48" />
+    <rect x="188" y="48" width="48" height="104" />
+  </g>
+</svg>
