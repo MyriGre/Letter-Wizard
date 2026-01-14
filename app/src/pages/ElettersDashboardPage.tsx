@@ -11,6 +11,7 @@ import { addUserTemplate, createDraft, ensureSeedData, listDrafts, listTemplates
 import { CreateEletterModal } from '../components/eletters/CreateEletterModal';
 import { TemplatePickerModal } from '../components/eletters/TemplatePickerModal';
 import { AIEletterModal } from '../components/eletters/AIEletterModal';
+import { ImportQuestionnaireModal } from '../components/eletters/ImportQuestionnaireModal';
 import { EletterPreview } from '../components/eletters/EletterPreview';
 import { aggregateDraftMetrics, getDraftKind } from '../eletters/metrics';
 
@@ -65,6 +66,7 @@ export function ElettersDashboardPage({
   const [initialTemplate, setInitialTemplate] = useState<Template | null>(null);
   const [templateView, setTemplateView] = useState<'user' | 'library'>('library');
   const [aiOpen, setAiOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
 
   const [drafts, setDrafts] = useState<EletterDraft[]>([]);
   const [templates, setTemplates] = useState<Template[]>([]);
@@ -373,6 +375,10 @@ export function ElettersDashboardPage({
             setTemplateOpen(true);
             return;
           }
+          if (choice === 'import') {
+            setImportOpen(true);
+            return;
+          }
           setAiOpen(true);
         }}
       />
@@ -397,6 +403,17 @@ export function ElettersDashboardPage({
         onOpenChange={setAiOpen}
         onApply={(letter) => {
           const draft = createDraft({ name: letter.title || 'AI draft', status: 'Draft', json: letter });
+          onOpenDraft(draft.id);
+        }}
+      />
+
+      <ImportQuestionnaireModal
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        onImport={(file) => {
+          const baseName = file.name.replace(/\.[^/.]+$/, '').trim() || 'Imported questionnaire';
+          const draft = createDraft({ name: baseName, status: 'Draft' });
+          setImportOpen(false);
           onOpenDraft(draft.id);
         }}
       />

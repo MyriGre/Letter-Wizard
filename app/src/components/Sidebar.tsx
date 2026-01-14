@@ -864,7 +864,7 @@ function BrandPanel({ onClose, initialKit, onSave }: BrandPanelProps) {
         </div>
       </div>
 
-      <div className="flex justify-end gap-2">
+      <div className="sticky bottom-0 flex justify-end gap-2 border-t border-slate-200 bg-white pt-4">
         <Button
           variant="ghost"
           size="md"
@@ -1089,7 +1089,7 @@ export function Sidebar() {
               >
                 <div 
                   ref={modalContentRef}
-                  className="w-full max-w-xl rounded-2xl bg-white p-5 shadow-xl"
+                  className="flex max-h-[85vh] w-full max-w-xl flex-col rounded-2xl bg-white p-5 shadow-xl"
                 >
                   <div className="mb-4 flex items-center justify-between">
                     <h4 className="text-lg font-semibold text-slate-900">Edit brand kit</h4>
@@ -1101,20 +1101,22 @@ export function Sidebar() {
                       ✕
                     </button>
                   </div>
-                  <BrandPanel
-                    initialKit={editingKit}
-                    onClose={() => setBrandModalOpen(false)}
-                    onSave={(data) => {
-                      if (editingKit?.id) {
-                        updateBrandKit(editingKit.id, data);
-                        setActiveBrand(editingKit.id);
-                      } else {
-                        const newId = addBrandKit(data);
-                        if (newId) setActiveBrand(newId);
-                      }
-                      setBrandModalOpen(false);
-                    }}
-                  />
+                  <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+                    <BrandPanel
+                      initialKit={editingKit}
+                      onClose={() => setBrandModalOpen(false)}
+                      onSave={(data) => {
+                        if (editingKit?.id) {
+                          updateBrandKit(editingKit.id, data);
+                          setActiveBrand(editingKit.id);
+                        } else {
+                          const newId = addBrandKit(data);
+                          if (newId) setActiveBrand(newId);
+                        }
+                        setBrandModalOpen(false);
+                      }}
+                    />
+                  </div>
                 </div>
               </div>,
               document.body,

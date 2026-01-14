@@ -8,7 +8,7 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { Button } from '../ui/button';
 import { cn } from '../../lib/cn';
 
-type CreateChoice = 'scratch' | 'template' | 'ai';
+type CreateChoice = 'scratch' | 'template' | 'ai' | 'import';
 
 function ChoiceCard({
   title,
@@ -95,6 +95,12 @@ export function CreateEletterModal({
               onSelect={() => onChoose('ai')}
               subtle="Great for quick prototypes"
             />
+            <ChoiceCard
+              title="Import questionnaire"
+              description="Upload a PDF, Word file, or scan and turn it into a draft."
+              onSelect={() => onChoose('import')}
+              subtle="Best for existing questionnaires"
+            />
           </div>
 
           <div className="mt-6 flex justify-end gap-2">
@@ -109,4 +115,3 @@ export function CreateEletterModal({
     </Dialog.Root>
   );
 }
-
