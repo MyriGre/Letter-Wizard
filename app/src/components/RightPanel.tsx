@@ -152,8 +152,15 @@ export function RightPanel() {
     };
 
     const toggleMulti = (next: boolean) => {
+      const current = (selectedElement.content ?? '').trim();
+      const isDefault =
+        current.length === 0 ||
+        current === 'Single choice question' ||
+        current === 'Multiple choice question';
       setElementType(selectedElement.id, next ? 'multiple-choice' : 'single-choice');
-      updateElementContent(selectedElement.id, next ? 'Multiple choice question' : 'Single choice question');
+      if (isDefault) {
+        updateElementContent(selectedElement.id, next ? 'Multiple choice question' : 'Single choice question');
+      }
     };
 
     return (

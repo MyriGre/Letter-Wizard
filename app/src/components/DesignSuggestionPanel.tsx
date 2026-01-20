@@ -73,6 +73,8 @@ function buildVariations(screen: Screen, kit: Brand) {
   const boldText = getAccessibleTextColor(primary, secondary);
   const subtleText = '#111827';
   const balancedText = getAccessibleTextColor(balancedBg, '#111827');
+  const balancedAccent = contrastRatio(balancedBg, secondary) >= 3 ? secondary : primary;
+  const balancedButton = primary;
 
   const baseSuggestions = [
     {
@@ -98,15 +100,15 @@ function buildVariations(screen: Screen, kit: Brand) {
       label: 'Balanced',
       bg: balancedBg,
       text: balancedText,
-      accent: secondary,
+      accent: balancedAccent,
       screen: {
         ...screen,
         style: {
           ...(screen.style || {}),
           background: balancedBg,
           textColor: balancedText,
-          accentColor: secondary,
-          buttonColor: secondary,
+          accentColor: balancedAccent,
+          buttonColor: balancedButton,
           variantKey: 'balanced',
         },
       },

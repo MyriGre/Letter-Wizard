@@ -11,14 +11,22 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import * as Popover from '@radix-ui/react-popover';
 import {
+  geminiTranslationLabel,
   translateLetterWithEngine,
-  localTranslationLabel,
+  additionalTranslationLanguages,
+  primaryTranslationLanguages,
   translationLabels,
   translationLanguages,
   type TranslationEngine,
   type TranslationLanguage,
 } from '../eletters/translation';
-import { addUserTemplate, createDraft } from '../eletters/storage';
+import {
+  addDraftToTranslationGroup,
+  addUserTemplate,
+  createDraft,
+  ensureTranslationGroup,
+  listTranslationVariants,
+} from '../eletters/storage';
 import type { EletterStatus } from '../eletters/types';
 
 function navigate(to: string) {
@@ -105,18 +113,21 @@ export function TopBar({
   const setLetter = useEditorStore((state) => state.setLetter);
   const selectedScreenId = useEditorStore((state) => state.selectedScreenId);
   const selectScreen = useEditorStore((state) => state.selectScreen);
+  const activeDraftId = useEditorStore((state) => state.activeDraftId);
   const [exportOpen, setExportOpen] = useState(false);
   const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'error'>('idle');
   const copyResetRef = useRef<number | null>(null);
   const exportTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const exportJson = useMemo(() => JSON.stringify(letter, null, 2), [letter]);
   const [translateOpen, setTranslateOpen] = useState(false);
-  const [targetLanguage, setTargetLanguage] = useState<TranslationLanguage>('de');
+  const [targetLanguages, setTargetLanguages] = useState<TranslationLanguage[]>([]);
+  const [extraLanguagePick, setExtraLanguagePick] = useState<TranslationLanguage | ''>('');
   const [translationMode, setTranslationMode] = useState<'replace' | 'duplicate'>('replace');
   const [isTranslating, setIsTranslating] = useState(false);
   const [translateError, setTranslateError] = useState<string | null>(null);
   const [lastEngine, setLastEngine] = useState<TranslationEngine | null>(null);
   const [actionsOpen, setActionsOpen] = useState(false);
+  const [translationsTick, setTranslationsTick] = useState(0);
 
   const handleExport = () => {
     setExportOpen(true);
@@ -147,12 +158,36 @@ export function TopBar({
 
   useEffect(() => {
     if (!translateOpen) return;
-    const current =
-      translationLanguages.find((lang) => lang === letter.language) ?? ('en' as TranslationLanguage);
-    setTargetLanguage(current === 'en' ? 'de' : current);
+    setTargetLanguages([]);
+    setExtraLanguagePick('');
     setTranslateError(null);
     setIsTranslating(false);
   }, [letter.language, translateOpen]);
+
+  useEffect(() => {
+    if (translationMode === 'replace' && targetLanguages.length > 1) {
+      setTranslationMode('duplicate');
+    }
+  }, [targetLanguages.length, translationMode]);
+
+  const translationVariants = useMemo(() => {
+    if (!activeDraftId) return [];
+    const variants = listTranslationVariants(activeDraftId);
+    const order = new Map(translationLanguages.map((lang, index) => [lang, index]));
+    return variants.sort((a, b) => {
+      const rankA = order.get(a.language as TranslationLanguage) ?? 99;
+      const rankB = order.get(b.language as TranslationLanguage) ?? 99;
+      return rankA - rankB;
+    });
+  }, [activeDraftId, letter.language, translationsTick]);
+  const existingLanguages = useMemo(() => {
+    const next = new Set(translationVariants.map((variant) => variant.language));
+    next.add(letter.language ?? 'en');
+    return next;
+  }, [letter.language, translationVariants]);
+  const selectedExtraLanguages = useMemo(() => {
+    return targetLanguages.filter((lang) => !primaryTranslationLanguages.includes(lang));
+  }, [targetLanguages]);
 
   return (
     <div className="sticky top-0 z-30 border-b border-slate-200 bg-white px-6 py-3">
@@ -180,6 +215,32 @@ export function TopBar({
                 <span className="h-1.5 w-1.5 rounded-full bg-slate-400" aria-hidden />
                 Draft
               </span>
+            )}
+            {translationVariants.length > 1 && (
+              <div className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-1 py-1 text-xs">
+                {translationVariants.map((variant) => {
+                  const isActive = variant.id === activeDraftId;
+                  const label = (variant.language ?? 'en').toUpperCase();
+                  const title = translationLabels[variant.language as TranslationLanguage] ?? label;
+                  return (
+                    <button
+                      key={variant.id}
+                      type="button"
+                      onClick={() => navigate(`/builder/${variant.id}`)}
+                      title={title}
+                      aria-current={isActive ? 'page' : undefined}
+                      className={cn(
+                        'rounded-full px-2.5 py-1 text-[11px] font-semibold transition',
+                        isActive
+                          ? 'bg-slate-900 text-white'
+                          : 'text-slate-500 hover:bg-slate-100 hover:text-slate-900',
+                      )}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
             )}
             {draftStatus === 'Draft' && (
               <Popover.Root open={actionsOpen} onOpenChange={setActionsOpen}>
@@ -297,18 +358,87 @@ export function TopBar({
               <label className="text-sm font-semibold text-slate-800" htmlFor="translate-language">
                 Translate to
               </label>
-              <select
-                id="translate-language"
-                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
-                value={targetLanguage}
-                onChange={(e) => setTargetLanguage(e.target.value as TranslationLanguage)}
-              >
-                {translationLanguages.map((lang) => (
-                  <option key={lang} value={lang}>
-                    {translationLabels[lang]}
+              <div className="flex flex-wrap gap-2" id="translate-language">
+                {primaryTranslationLanguages.map((lang) => {
+                  const isSelected = targetLanguages.includes(lang);
+                  const isExisting = existingLanguages.has(lang);
+                  return (
+                    <button
+                      key={lang}
+                      type="button"
+                      disabled={isExisting}
+                      onClick={() => {
+                        if (isExisting) return;
+                        setTargetLanguages((prev) =>
+                          prev.includes(lang) ? prev.filter((item) => item !== lang) : [...prev, lang],
+                        );
+                      }}
+                      className={cn(
+                        'rounded-full border px-3 py-2 text-xs font-semibold transition',
+                        isSelected
+                          ? 'border-slate-900 bg-slate-900 text-white'
+                          : 'border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900',
+                        isExisting && 'cursor-not-allowed bg-slate-100 text-slate-400',
+                      )}
+                      aria-pressed={isSelected}
+                      title={isExisting ? 'Already added' : undefined}
+                    >
+                      {isExisting ? `✓ ${translationLabels[lang]}` : translationLabels[lang]}
+                    </button>
+                  );
+                })}
+              </div>
+              {selectedExtraLanguages.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {selectedExtraLanguages.map((lang) => (
+                    <button
+                      key={lang}
+                      type="button"
+                      onClick={() =>
+                        setTargetLanguages((prev) => prev.filter((item) => item !== lang))
+                      }
+                      className="rounded-full border border-slate-900 bg-slate-900 px-3 py-2 text-xs font-semibold text-white transition hover:bg-slate-800"
+                      aria-pressed="true"
+                    >
+                      {translationLabels[lang]}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <div>
+                <label className="text-xs font-semibold text-slate-600" htmlFor="translate-language-more">
+                  More languages
+                </label>
+                <select
+                  id="translate-language-more"
+                  className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+                  value={extraLanguagePick}
+                  onChange={(e) => {
+                    const value = e.target.value as TranslationLanguage;
+                    if (!value) return;
+                    setTargetLanguages((prev) => (prev.includes(value) ? prev : [...prev, value]));
+                    setExtraLanguagePick('');
+                  }}
+                >
+                  <option value="" disabled>
+                    Select a language
                   </option>
-                ))}
-              </select>
+                  {additionalTranslationLanguages.map((lang) => {
+                    const disabled = existingLanguages.has(lang) || targetLanguages.includes(lang);
+                    const label = translationLabels[lang];
+                    return (
+                      <option key={lang} value={lang} disabled={disabled}>
+                        {disabled ? `${label} (already added)` : label}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+              <div className="text-xs text-slate-500">
+                {targetLanguages.length === 0
+                  ? 'Select one or more languages. Existing translations are disabled.'
+                  : `${targetLanguages.length} selected.`}
+              </div>
               <div>
                 <div className="text-sm font-semibold text-slate-800">Apply translation</div>
                 <div className="mt-2 inline-flex rounded-lg border border-slate-200 bg-slate-50 p-1">
@@ -317,23 +447,32 @@ export function TopBar({
                       key={mode}
                       type="button"
                       onClick={() => setTranslationMode(mode)}
+                      disabled={mode === 'replace' && targetLanguages.length > 1}
                       className={cn(
                         'rounded-md px-3 py-2 text-xs font-semibold transition',
                         translationMode === mode
                           ? 'bg-white text-slate-900 shadow-sm'
                           : 'text-slate-500 hover:text-slate-800',
+                        mode === 'replace' && targetLanguages.length > 1 && 'cursor-not-allowed opacity-50',
                       )}
                     >
-                      {mode === 'replace' ? 'Replace current letter' : 'Create a copy'}
+                      {mode === 'replace' ? 'Replace current letter' : 'Add translation'}
                     </button>
                   ))}
                 </div>
+                {translationMode === 'duplicate' && (
+                  <div className="mt-2 text-xs text-slate-500">
+                    Translation is saved as a language variant you can switch to in the header.
+                  </div>
+                )}
               </div>
               <div className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 text-xs text-slate-500">
-                Engine: {localTranslationLabel}. Requires the local model to be available.
+                Engine: {geminiTranslationLabel}. Uses your Gemini API key.
               </div>
               {lastEngine && (
-                <div className="text-xs text-slate-500">Last run: {lastEngine === 'local' ? 'Local model' : 'Demo'}</div>
+                <div className="text-xs text-slate-500">
+                  Last run: {lastEngine === 'gemini' ? 'Gemini' : lastEngine === 'local' ? 'Local model' : 'Demo'}
+                </div>
               )}
               {translateError && (
                 <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
@@ -350,24 +489,45 @@ export function TopBar({
               <Button
                 variant="secondary"
                 size="sm"
-                disabled={isTranslating}
+                disabled={isTranslating || targetLanguages.length === 0}
                 onClick={() => {
                   (async () => {
+                    if (targetLanguages.length === 0) {
+                      setTranslateError('Please select at least one language.');
+                      return;
+                    }
+                    if (translationMode === 'replace' && targetLanguages.length > 1) {
+                      setTranslateError('Replace current letter only supports one language.');
+                      return;
+                    }
                     setIsTranslating(true);
                     setTranslateError(null);
                     try {
-                      const result = await translateLetterWithEngine(letter, targetLanguage, 'local');
-                      setLastEngine(result.engine);
-                      if (translationMode === 'duplicate') {
-                        const baseName =
-                          result.letter.title || draftName || letter.title || 'Untitled';
-                        const copyName = `${baseName} (${translationLabels[targetLanguage]})`;
-                        const draft = createDraft({ name: copyName, status: 'Draft', json: result.letter });
-                        navigate(`/builder/${draft.id}`);
-                      } else {
-                        setLetter(result.letter);
-                        if (result.letter.title) onDraftNameCommit?.(result.letter.title);
-                        if (selectedScreenId) selectScreen(selectedScreenId);
+                      const existingLangs = new Set(translationVariants.map((variant) => variant.language));
+                      const createdDraftIds: string[] = [];
+                      for (const lang of targetLanguages) {
+                        if (translationMode === 'duplicate' && existingLangs.has(lang)) continue;
+                        const result = await translateLetterWithEngine(letter, lang, 'gemini');
+                        setLastEngine(result.engine);
+                        if (translationMode === 'duplicate') {
+                          const baseName =
+                            result.letter.title || draftName || letter.title || 'Untitled';
+                          const copyName = `${baseName} (${translationLabels[lang]})`;
+                          const draft = createDraft({ name: copyName, status: 'Draft', json: result.letter });
+                          createdDraftIds.push(draft.id);
+                          if (activeDraftId) {
+                            const group = ensureTranslationGroup(activeDraftId);
+                            addDraftToTranslationGroup(group.id, draft.id);
+                          }
+                        } else {
+                          setLetter(result.letter);
+                          if (result.letter.title) onDraftNameCommit?.(result.letter.title);
+                          if (selectedScreenId) selectScreen(selectedScreenId);
+                        }
+                      }
+                      if (translationMode === 'duplicate' && createdDraftIds.length > 0) {
+                        setTranslationsTick((prev) => prev + 1);
+                        navigate(`/builder/${createdDraftIds[0]}`);
                       }
                       setTranslateOpen(false);
                     } catch (err) {

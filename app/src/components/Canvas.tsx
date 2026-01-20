@@ -2206,7 +2206,10 @@ export function Canvas() {
                   )}
                   <div className="absolute inset-0 pointer-events-none rounded-inherit" />
                   <div
-                    className="flex min-h-[240px] flex-1 flex-col transition-colors py-24"
+                    className={cn(
+                      'flex min-h-[240px] flex-1 flex-col transition-colors py-24 w-full',
+                      deviceMode === 'desktop' ? 'max-w-[760px] mx-auto' : '',
+                    )}
                     style={{
                       alignItems:
                         screen.style?.alignItems === 'center'

@@ -6,21 +6,46 @@
 
 import type { BaseElement, ElementType, Letter, Screen } from '../types/editor';
 
-export type TranslationLanguage = 'en' | 'de' | 'it' | 'fr';
-export type TranslationEngine = 'demo' | 'local';
+export type TranslationLanguage =
+  | 'en'
+  | 'de'
+  | 'it'
+  | 'fr'
+  | 'es'
+  | 'pt'
+  | 'nl'
+  | 'pl'
+  | 'sv'
+  | 'da'
+  | 'no'
+  | 'fi';
+export type TranslationEngine = 'demo' | 'local' | 'gemini';
 export type TranslationMode = 'auto' | TranslationEngine;
 export type TranslationResult = { letter: Letter; engine: TranslationEngine };
 
-export const translationLanguages: TranslationLanguage[] = ['en', 'de', 'it', 'fr'];
+export const primaryTranslationLanguages: TranslationLanguage[] = ['en', 'de', 'it', 'fr'];
+export const additionalTranslationLanguages: TranslationLanguage[] = ['es', 'pt', 'nl', 'pl', 'sv', 'da', 'no', 'fi'];
+export const translationLanguages: TranslationLanguage[] = [
+  ...primaryTranslationLanguages,
+  ...additionalTranslationLanguages,
+];
 
 export const translationLabels: Record<TranslationLanguage, string> = {
   en: 'English',
   de: 'Deutsch',
   it: 'Italiano',
   fr: 'Francais',
+  es: 'Spanish',
+  pt: 'Portuguese',
+  nl: 'Dutch',
+  pl: 'Polish',
+  sv: 'Swedish',
+  da: 'Danish',
+  no: 'Norwegian',
+  fi: 'Finnish',
 };
 
-const phraseMap: Record<TranslationLanguage, Record<string, string>> = {
+const phraseMap: Partial<Record<TranslationLanguage, Record<string, string>>> = {
   en: {},
   de: {
     'Add a title': 'Titel hinzufuegen',
@@ -118,7 +143,7 @@ const phraseMap: Record<TranslationLanguage, Record<string, string>> = {
   },
 };
 
-const wordMap: Record<TranslationLanguage, Record<string, string>> = {
+const wordMap: Partial<Record<TranslationLanguage, Record<string, string>>> = {
   en: {},
   de: {
     add: 'hinzufuegen',
@@ -238,7 +263,7 @@ const translatableContentTypes = new Set<ElementType>([
 
 const translatablePropKeys = ['placeholder', 'minLabel', 'maxLabel', 'label', 'alt'];
 
-const nllbLangMap: Record<TranslationLanguage, string> = {
+const nllbLangMap: Partial<Record<TranslationLanguage, string>> = {
   en: 'eng_Latn',
   de: 'deu_Latn',
   it: 'ita_Latn',
@@ -253,6 +278,7 @@ const translationBackend =
 
 export const localTranslationLabel =
   translationBackend === 'nllb' ? 'NLLB 600M (quality)' : 'Opus MT (small)';
+export const geminiTranslationLabel = 'Gemini (online)';
 
 const defaultLocalModel =
   typeof import.meta.env?.VITE_TRANSLATION_MODEL === 'string' && import.meta.env.VITE_TRANSLATION_MODEL
@@ -332,26 +358,56 @@ function translateElementDemo(element: BaseElement, lang: TranslationLanguage): 
   return next;
 }
 
-function translateScreenDemo(screen: Screen, lang: TranslationLanguage): Screen {
+function translateScreenDemo(
+  screen: Screen,
+  lang: TranslationLanguage,
+  screenIndex: number,
+  screenCount: number,
+): Screen {
+  const useDefaults = screenCount > 1;
+  const navCloseLabel = screen.navCloseLabel
+    ? translateTextDemo(screen.navCloseLabel, lang)
+    : useDefaults && screenIndex === 0
+      ? translateTextDemo('Close', lang)
+      : screen.navCloseLabel;
+  const navNextLabel = screen.navNextLabel
+    ? translateTextDemo(screen.navNextLabel, lang)
+    : useDefaults && screenIndex < screenCount - 1
+      ? translateTextDemo('Next', lang)
+      : screen.navNextLabel;
+  const navBackLabel = screen.navBackLabel
+    ? translateTextDemo(screen.navBackLabel, lang)
+    : useDefaults && screenIndex > 0
+      ? translateTextDemo('Back', lang)
+      : screen.navBackLabel;
+  const navDoneLabel = screen.navDoneLabel
+    ? translateTextDemo(screen.navDoneLabel, lang)
+    : useDefaults && screenIndex === screenCount - 1
+      ? translateTextDemo('Done', lang)
+      : screen.navDoneLabel;
+
   return {
     ...screen,
     title: screen.title ? translateTextDemo(screen.title, lang) : screen.title,
     ctaLabel: screen.ctaLabel ? translateTextDemo(screen.ctaLabel, lang) : screen.ctaLabel,
-    navNextLabel: screen.navNextLabel ? translateTextDemo(screen.navNextLabel, lang) : screen.navNextLabel,
-    navBackLabel: screen.navBackLabel ? translateTextDemo(screen.navBackLabel, lang) : screen.navBackLabel,
-    navDoneLabel: screen.navDoneLabel ? translateTextDemo(screen.navDoneLabel, lang) : screen.navDoneLabel,
-    navCloseLabel: screen.navCloseLabel ? translateTextDemo(screen.navCloseLabel, lang) : screen.navCloseLabel,
+    navNextLabel,
+    navBackLabel,
+    navDoneLabel,
+    navCloseLabel,
     elements: screen.elements.map((el) => translateElementDemo(el, lang)),
   };
 }
 
 export function translateLetterDemo(letter: Letter, lang: TranslationLanguage): Letter {
+  const screensSorted = letter.screens.slice().sort((a, b) => a.order - b.order);
   return {
     ...letter,
     language: lang,
     title: letter.title ? translateTextDemo(letter.title, lang) : letter.title,
     description: letter.description ? translateTextDemo(letter.description, lang) : letter.description,
-    screens: letter.screens.map((screen) => translateScreenDemo(screen, lang)),
+    screens: screensSorted.map((screen, index) =>
+      translateScreenDemo(screen, lang, index, screensSorted.length),
+    ),
   };
 }
 
@@ -472,19 +528,42 @@ async function translateElementLocal(
 async function translateScreenLocal(
   screen: Screen,
   translate: (value: string) => Promise<string>,
+  screenIndex: number,
+  screenCount: number,
 ): Promise<Screen> {
   const elements: BaseElement[] = [];
   for (const element of screen.elements) {
     elements.push(await translateElementLocal(element, translate));
   }
+  const useDefaults = screenCount > 1;
+  const navCloseLabel = screen.navCloseLabel
+    ? await translate(screen.navCloseLabel)
+    : useDefaults && screenIndex === 0
+      ? await translate('Close')
+      : screen.navCloseLabel;
+  const navNextLabel = screen.navNextLabel
+    ? await translate(screen.navNextLabel)
+    : useDefaults && screenIndex < screenCount - 1
+      ? await translate('Next')
+      : screen.navNextLabel;
+  const navBackLabel = screen.navBackLabel
+    ? await translate(screen.navBackLabel)
+    : useDefaults && screenIndex > 0
+      ? await translate('Back')
+      : screen.navBackLabel;
+  const navDoneLabel = screen.navDoneLabel
+    ? await translate(screen.navDoneLabel)
+    : useDefaults && screenIndex === screenCount - 1
+      ? await translate('Done')
+      : screen.navDoneLabel;
   return {
     ...screen,
     title: screen.title ? await translate(screen.title) : screen.title,
     ctaLabel: screen.ctaLabel ? await translate(screen.ctaLabel) : screen.ctaLabel,
-    navNextLabel: screen.navNextLabel ? await translate(screen.navNextLabel) : screen.navNextLabel,
-    navBackLabel: screen.navBackLabel ? await translate(screen.navBackLabel) : screen.navBackLabel,
-    navDoneLabel: screen.navDoneLabel ? await translate(screen.navDoneLabel) : screen.navDoneLabel,
-    navCloseLabel: screen.navCloseLabel ? await translate(screen.navCloseLabel) : screen.navCloseLabel,
+    navNextLabel,
+    navBackLabel,
+    navDoneLabel,
+    navCloseLabel,
     elements,
   };
 }
@@ -500,9 +579,119 @@ export async function translateLetterLocal(letter: Letter, lang: TranslationLang
     cache.set(value, translated);
     return translated;
   };
+  const screensSorted = letter.screens.slice().sort((a, b) => a.order - b.order);
   const screens: Screen[] = [];
-  for (const screen of letter.screens) {
-    screens.push(await translateScreenLocal(screen, translate));
+  for (let index = 0; index < screensSorted.length; index += 1) {
+    screens.push(await translateScreenLocal(screensSorted[index], translate, index, screensSorted.length));
+  }
+  return {
+    ...letter,
+    language: lang,
+    title: letter.title ? await translate(letter.title) : letter.title,
+    description: letter.description ? await translate(letter.description) : letter.description,
+    screens,
+  };
+}
+
+async function translateTextBatchGemini(
+  texts: string[],
+  sourceLang: TranslationLanguage,
+  targetLang: TranslationLanguage,
+): Promise<string[]> {
+  const resp = await fetch('/api/eletters/translate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ texts, sourceLang, targetLang }),
+  });
+  const payload = await resp.text();
+  let data: { translations?: unknown; error?: string } | null = null;
+  try {
+    data = payload ? (JSON.parse(payload) as { translations?: unknown; error?: string }) : null;
+  } catch {
+    throw new Error('Translation service returned non-JSON response.');
+  }
+  if (!resp.ok) {
+    throw new Error(data?.error || payload || `Translation failed (HTTP ${resp.status})`);
+  }
+  if (!Array.isArray(data?.translations)) {
+    throw new Error('Translation response missing translations array.');
+  }
+  return data?.translations as string[];
+}
+
+function collectTranslatableStrings(letter: Letter, includeNavDefaults: boolean): string[] {
+  const bucket: string[] = [];
+  const pushIfString = (value?: unknown) => {
+    if (typeof value === 'string' && value.trim()) bucket.push(value);
+  };
+  const collectProps = (props?: Record<string, unknown>) => {
+    if (!props) return;
+    if (Array.isArray(props.options)) {
+      for (const opt of props.options) {
+        if (typeof opt === 'string') {
+          pushIfString(opt);
+          continue;
+        }
+        if (opt && typeof opt === 'object' && 'label' in opt) {
+          pushIfString((opt as { label?: unknown }).label);
+        }
+      }
+    }
+    for (const key of translatablePropKeys) {
+      pushIfString(props[key]);
+    }
+  };
+  const collectElement = (element: BaseElement) => {
+    if (typeof element.content === 'string' && translatableContentTypes.has(element.type)) {
+      pushIfString(element.content);
+    }
+    if (element.props) collectProps(element.props as Record<string, unknown>);
+  };
+  const collectScreen = (screen: Screen, screenIndex: number, screenCount: number) => {
+    pushIfString(screen.title);
+    pushIfString(screen.ctaLabel);
+    pushIfString(screen.navNextLabel);
+    pushIfString(screen.navBackLabel);
+    pushIfString(screen.navDoneLabel);
+    pushIfString(screen.navCloseLabel);
+    if (includeNavDefaults && screenCount > 1) {
+      if (!screen.navCloseLabel && screenIndex === 0) pushIfString('Close');
+      if (!screen.navNextLabel && screenIndex < screenCount - 1) pushIfString('Next');
+      if (!screen.navBackLabel && screenIndex > 0) pushIfString('Back');
+      if (!screen.navDoneLabel && screenIndex === screenCount - 1) pushIfString('Done');
+    }
+    for (const element of screen.elements) collectElement(element);
+  };
+
+  pushIfString(letter.title);
+  pushIfString(letter.description);
+  const screensSorted = letter.screens.slice().sort((a, b) => a.order - b.order);
+  for (let index = 0; index < screensSorted.length; index += 1) {
+    collectScreen(screensSorted[index], index, screensSorted.length);
+  }
+  return bucket;
+}
+
+async function translateLetterGemini(letter: Letter, lang: TranslationLanguage): Promise<Letter> {
+  const sourceLang = translationLanguages.includes((letter.language ?? 'en') as TranslationLanguage)
+    ? ((letter.language ?? 'en') as TranslationLanguage)
+    : 'en';
+  if (sourceLang === lang) return { ...letter, language: lang };
+  const strings = collectTranslatableStrings(letter, true);
+  const unique = Array.from(new Set(strings));
+  if (unique.length === 0) return { ...letter, language: lang };
+
+  const translations = await translateTextBatchGemini(unique, sourceLang, lang);
+  const map = new Map<string, string>();
+  unique.forEach((value, index) => {
+    const translated = translations[index];
+    map.set(value, typeof translated === 'string' && translated.trim() ? translated : value);
+  });
+  const translate = async (value: string) => map.get(value) ?? value;
+  const screensSorted = letter.screens.slice().sort((a, b) => a.order - b.order);
+  const screens: Screen[] = [];
+  for (let index = 0; index < screensSorted.length; index += 1) {
+    screens.push(await translateScreenLocal(screensSorted[index], translate, index, screensSorted.length));
   }
   return {
     ...letter,
@@ -518,6 +707,10 @@ export async function translateLetterWithEngine(
   lang: TranslationLanguage,
   mode: TranslationMode = 'auto',
 ): Promise<TranslationResult> {
+  if (mode === 'gemini') {
+    const translated = await translateLetterGemini(letter, lang);
+    return { letter: translated, engine: 'gemini' };
+  }
   if (mode === 'local') {
     const local = await translateLetterLocal(letter, lang);
     return { letter: local, engine: 'local' };

@@ -14,6 +14,14 @@ const DRAFTS_KEY = 'eletters:drafts:v1';
 // Bump version to reseed library with updated catalog from template-recipes.yaml
 const TEMPLATES_KEY = 'eletters:templates:v3';
 const DESIGNS_KEY = 'eletters:designs:v1';
+const TRANSLATION_GROUPS_KEY = 'eletters:translation-groups:v1';
+
+type TranslationGroup = {
+  id: string;
+  draftIds: string[];
+  createdAt: number;
+  updatedAt: number;
+};
 
 export function loadFromStorage<T>(key: string, fallback: T): T {
   try {
@@ -150,4 +158,57 @@ export function addUserTemplate(name: string, json: Letter): Template {
 
 export function listDesigns(): SavedDesign[] {
   return loadFromStorage<SavedDesign[]>(DESIGNS_KEY, []).sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+function listTranslationGroups(): TranslationGroup[] {
+  return loadFromStorage<TranslationGroup[]>(TRANSLATION_GROUPS_KEY, []);
+}
+
+function saveTranslationGroups(groups: TranslationGroup[]): void {
+  saveToStorage(TRANSLATION_GROUPS_KEY, groups);
+}
+
+export function getTranslationGroupForDraft(draftId: string): TranslationGroup | null {
+  return listTranslationGroups().find((group) => group.draftIds.includes(draftId)) ?? null;
+}
+
+export function ensureTranslationGroup(draftId: string): TranslationGroup {
+  const existing = getTranslationGroupForDraft(draftId);
+  if (existing) return existing;
+  const now = Date.now();
+  const next: TranslationGroup = {
+    id: `tg-${nanoid()}`,
+    draftIds: [draftId],
+    createdAt: now,
+    updatedAt: now,
+  };
+  saveTranslationGroups([...listTranslationGroups(), next]);
+  return next;
+}
+
+export function addDraftToTranslationGroup(groupId: string, draftId: string): void {
+  const groups = listTranslationGroups();
+  const idx = groups.findIndex((group) => group.id === groupId);
+  if (idx === -1) return;
+  const draftIds = new Set(groups[idx].draftIds);
+  draftIds.add(draftId);
+  groups[idx] = {
+    ...groups[idx],
+    draftIds: Array.from(draftIds),
+    updatedAt: Date.now(),
+  };
+  saveTranslationGroups(groups);
+}
+
+export function listTranslationVariants(draftId: string): Array<{ id: string; name: string; language: string }> {
+  const group = getTranslationGroupForDraft(draftId);
+  if (!group) return [];
+  return group.draftIds
+    .map((id) => getDraft(id))
+    .filter((draft): draft is EletterDraft => Boolean(draft))
+    .map((draft) => ({
+      id: draft.id,
+      name: draft.name,
+      language: draft.json.language ?? 'en',
+    }));
 }

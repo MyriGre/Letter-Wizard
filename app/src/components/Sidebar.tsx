@@ -1163,21 +1163,18 @@ export function Sidebar() {
               key={item.id}
               type="button"
               onClick={() => setActiveMain(item.id)}
-              className={`flex h-20 w-16 flex-col items-center justify-center gap-2 rounded-2xl text-xs font-semibold transition ${
-                isActive
-                  ? 'bg-white text-blue-600 shadow-[0_10px_30px_-18px_rgba(0,0,0,0.35)] ring-1 ring-blue-200'
-                  : 'text-slate-500 hover:text-blue-600'
-              }`}
+              className="group flex h-20 w-16 flex-col items-center justify-center gap-2 rounded-2xl text-xs font-semibold text-slate-500 transition hover:bg-slate-50"
               aria-pressed={isActive}
             >
               <span
-                className={`flex h-12 w-12 items-center justify-center rounded-2xl ${
-                  isActive ? 'bg-blue-50 text-blue-600' : 'text-slate-500'
+                className={`flex h-12 w-12 items-center justify-center rounded-2xl transition ${
+                  isActive ? '' : 'group-hover:text-slate-700'
                 }`}
+                style={isActive ? { color: 'var(--brand-primary)' } : undefined}
               >
                 {item.icon}
               </span>
-              <span className="text-[12px] leading-none text-center">{item.label}</span>
+              <span className="text-[12px] leading-none text-center text-slate-500">{item.label}</span>
             </button>
           );
         })}
