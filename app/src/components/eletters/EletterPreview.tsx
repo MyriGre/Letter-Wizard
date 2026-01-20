@@ -174,7 +174,7 @@ export function EletterPreview({
   const screen = screens[screenIdx];
   const background = screen?.style?.background ?? '#ffffff';
   const spacing = screen?.style?.elementSpacing ?? 12;
-  const elements = (screen?.elements ?? []).filter((el) => !el.parentId);
+  const elements = (screen?.elements ?? []).filter((el) => !el.parentId && el.type !== 'header');
   const alignItems =
     screen?.style?.alignItems === 'center'
       ? 'center'

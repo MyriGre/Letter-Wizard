@@ -981,6 +981,14 @@ type PlanQuestion = {
 };
 
 type QuestionPlan = { title?: string; questions: PlanQuestion[] };
+type ImportPlan = QuestionPlan & { notes?: string[] };
+
+function normalizeFileTitle(fileName: string): string {
+  const trimmed = fileName?.trim() ?? '';
+  if (!trimmed) return 'Imported questionnaire';
+  const withoutExtension = trimmed.replace(/\.[^/.]+$/, '');
+  return withoutExtension || trimmed;
+}
 
 function extractJsonCandidate(input: string): string {
   const trimmed = input.trim();
@@ -1000,10 +1008,13 @@ async function getGeminiModelCandidates(
 ): Promise<string[]> {
   const normalizeModel = (name: string) => name.replace(/^models\//, '').trim();
   const normalizedPreferred = preferredModels.map(normalizeModel).filter(Boolean);
-  if (modelOverride) return [normalizeModel(modelOverride)];
+  const normalizedOverride = modelOverride ? normalizeModel(modelOverride) : '';
+  const orderedCandidates = normalizedOverride
+    ? [normalizedOverride, ...normalizedPreferred.filter((name) => name !== normalizedOverride)]
+    : normalizedPreferred.slice();
   try {
     const listResp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
-    if (!listResp.ok) return normalizedPreferred.slice();
+    if (!listResp.ok) return orderedCandidates.slice();
     const listData = (await listResp.json()) as {
       models?: { name?: string; supportedGenerationMethods?: string[] }[];
     };
@@ -1012,21 +1023,36 @@ async function getGeminiModelCandidates(
       .map((model) => normalizeModel(model.name ?? ''))
       .filter(Boolean);
     const supportedSet = new Set(supported);
-    const filtered = normalizedPreferred.filter((name) => supportedSet.has(name));
+    const filtered = orderedCandidates.filter((name) => supportedSet.has(name));
     if (filtered.length > 0) return filtered;
     const geminiOnly = supported.filter((name) => name.startsWith('gemini-'));
     if (geminiOnly.length > 0) return geminiOnly.slice(0, 6);
   } catch {
-    return normalizedPreferred.slice();
+    return orderedCandidates.slice();
   }
-  return normalizedPreferred.slice();
+  return orderedCandidates.slice();
 }
 
-function planQuestionToElement(question: PlanQuestion): any | null {
+function planQuestionToElement(
+  question: PlanQuestion,
+  opts?: { allowFallback?: boolean; notes?: string[]; index?: number },
+): any | null {
   const text = question.text?.trim();
-  if (!text) return null;
-  const normalizedType = normalizeElementType(question.type);
-  if (!normalizedType || !isQuestionElementType(normalizedType)) return null;
+  if (!text) {
+    if (opts?.notes && typeof opts.index === 'number') {
+      opts.notes.push(`Skipped question ${opts.index + 1} because it had no text.`);
+    }
+    return null;
+  }
+  let normalizedType = normalizeElementType(question.type);
+  if (!normalizedType || !isQuestionElementType(normalizedType)) {
+    if (!opts?.allowFallback) return null;
+    if (opts?.notes && typeof opts.index === 'number') {
+      const rawType = typeof question.type === 'string' ? question.type : 'unknown';
+      opts.notes.push(`Question ${opts.index + 1} type "${rawType}" was mapped to text input.`);
+    }
+    normalizedType = 'input';
+  }
 
   if (normalizedType === 'rating') {
     const max = question.scale?.max ?? 5;
@@ -1050,6 +1076,9 @@ function planQuestionToElement(question: PlanQuestion): any | null {
       .map((label) => (typeof label === 'string' ? { label: label.trim() } : null))
       .filter(Boolean);
     const safeOptions = options.length > 1 ? options : [{ label: 'Option A' }, { label: 'Option B' }];
+    if (options.length <= 1 && opts?.notes && typeof opts.index === 'number') {
+      opts.notes.push(`Question ${opts.index + 1} had missing options, so defaults were added.`);
+    }
     return {
       id: nanoid(),
       type: normalizedType,
@@ -1083,7 +1112,7 @@ function buildLetterFromPlan(plan: QuestionPlan, prompt: string): Letter {
     content: title,
     style: { fontSize: 26, align: 'left' },
   });
-  const questions = (plan.questions ?? []).map(planQuestionToElement).filter(Boolean) as any[];
+  const questions = (plan.questions ?? []).map((q) => planQuestionToElement(q)).filter(Boolean) as any[];
   const trimmed = questions.slice(0, desired);
   screen.elements.push(...trimmed);
   screen.elements.push({
@@ -1093,6 +1122,138 @@ function buildLetterFromPlan(plan: QuestionPlan, prompt: string): Letter {
     style: { width: 260, height: 56, align: 'center' },
   });
   return letter;
+}
+
+function buildLetterFromImportPlan(plan: ImportPlan, fileName: string): { letter: Letter; notes: string[] } {
+  const title = plan.title?.trim() || normalizeFileTitle(fileName) || 'Imported questionnaire';
+  const letter = createBaseLetter(title);
+  const screen = letter.screens[0]!;
+  const fallbackNotes: string[] = [];
+  screen.elements.push({
+    id: nanoid(),
+    type: 'header',
+    content: title,
+    style: { fontSize: 26, align: 'left' },
+  });
+  const questions = (plan.questions ?? [])
+    .map((question, index) =>
+      planQuestionToElement(question, { allowFallback: true, notes: fallbackNotes, index }),
+    )
+    .filter(Boolean) as any[];
+  const trimmed = questions.slice(0, 20);
+  screen.elements.push(...trimmed);
+  screen.elements.push({
+    id: nanoid(),
+    type: 'button',
+    content: 'Continue',
+    style: { width: 260, height: 56, align: 'center' },
+  });
+  return { letter, notes: fallbackNotes };
+}
+
+async function tryGenerateImportPlanWithGemini(
+  file: { fileName: string; mimeType: string; data: string },
+  apiKey?: string,
+  modelOverride?: string,
+): Promise<{ plan: ImportPlan | null; error?: string }> {
+  if (!apiKey) return { plan: null, error: 'Missing GEMINI_API_KEY.' };
+  try {
+    const system = [
+      'You are an expert survey analyst.',
+      'Extract ONLY the actual survey questions and their response options from the attached document.',
+      'Ignore cover pages, introductions, instructions, privacy text, and page numbers.',
+      'Return ONLY JSON with shape:',
+      '{ "title": string, "questions": [ { "type": string, "text": string, "options": string[], "scale": { "min": number, "max": number, "minLabel": string, "maxLabel": string }, "required": boolean } ], "notes": string[] }',
+      'Allowed types: single_choice, multiple_choice, rating, text_input, ranking, date_input, file_upload.',
+      'For rating, always include a scale with min/max and labels.',
+      'For choice types, include 2-8 options.',
+      'If a question type is not supported, map it to the closest allowed type and add a note describing the change.',
+      'No markdown, no commentary.',
+    ].join('\n');
+    const prompt = `${system}\n\nDocument name: ${file.fileName}`;
+    const preferredModels = [
+      'gemini-2.5-pro',
+      'gemini-2.5-flash',
+      'gemini-pro-latest',
+      'gemini-flash-latest',
+      'gemini-flash-lite-latest',
+      'gemini-2.0-flash',
+      'gemini-2.0-flash-001',
+      'gemini-2.0-flash-lite',
+      'gemini-2.0-flash-lite-001',
+    ];
+    const modelCandidates = await getGeminiModelCandidates(apiKey, preferredModels, modelOverride);
+    let lastError: Error | null = null;
+    for (const modelName of modelCandidates) {
+      try {
+        const resp = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [
+                {
+                  role: 'user',
+                  parts: [
+                    { text: prompt },
+                    { inlineData: { mimeType: file.mimeType, data: file.data } },
+                  ],
+                },
+              ],
+              generationConfig: { temperature: 0.2, topP: 0.9 },
+            }),
+          },
+        );
+        if (!resp.ok) {
+          const errText = await resp.text();
+          let message = errText || `HTTP ${resp.status}`;
+          try {
+            const parsed = JSON.parse(errText);
+            if (parsed?.error?.message) message = parsed.error.message;
+          } catch {
+            // keep raw text
+          }
+          throw new Error(message);
+        }
+        const data = (await resp.json()) as any;
+        const text = data?.candidates?.[0]?.content?.parts?.map((part: any) => part?.text ?? '').join('') ?? '';
+        if (!text) throw new Error('Empty response');
+        const parsed = JSON.parse(extractJsonCandidate(text)) as ImportPlan;
+        if (!parsed || !Array.isArray(parsed.questions)) throw new Error('Invalid plan format');
+        return { plan: parsed };
+      } catch (err) {
+        lastError = err instanceof Error ? err : new Error('Gemini request failed.');
+      }
+    }
+    throw lastError ?? new Error('Gemini request failed.');
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Gemini request failed.';
+    return { plan: null, error: message };
+  }
+}
+
+export async function generateImportDraftResult(
+  file: { fileName: string; mimeType: string; data: string },
+  opts?: { geminiKey?: string; geminiModel?: string },
+): Promise<{ draftJson?: Letter; notes?: string[]; warning?: string; error?: string; source?: DraftSource }> {
+  if (!file?.data) return { error: 'Missing file data.' };
+  const planResult = await tryGenerateImportPlanWithGemini(file, opts?.geminiKey, opts?.geminiModel);
+  if (!planResult.plan) {
+    return { error: planResult.error ?? 'Failed to extract questions.' };
+  }
+
+  const { letter, notes: fallbackNotes } = buildLetterFromImportPlan(planResult.plan, file.fileName);
+  const notes = [...(planResult.plan.notes ?? []), ...fallbackNotes];
+  const questionCount = countQuestions(letter);
+  const requestedCount = (planResult.plan.questions ?? []).length;
+  if (questionCount === 0) {
+    notes.push('No supported questions were detected. Please review the file formatting.');
+  } else if (requestedCount > 0 && questionCount < requestedCount) {
+    notes.push(`Only ${questionCount} of ${requestedCount} questions were imported.`);
+  }
+
+  return { draftJson: letter, notes: notes.length ? notes : undefined, source: 'gemini' };
 }
 
 async function tryGenerateQuestionPlanWithGemini(

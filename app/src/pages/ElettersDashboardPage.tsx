@@ -410,9 +410,13 @@ export function ElettersDashboardPage({
       <ImportQuestionnaireModal
         open={importOpen}
         onOpenChange={setImportOpen}
-        onImport={(file) => {
+        onImport={({ file, draft: importedDraft }) => {
           const baseName = file.name.replace(/\.[^/.]+$/, '').trim() || 'Imported questionnaire';
-          const draft = createDraft({ name: baseName, status: 'Draft' });
+          const draft = createDraft({
+            name: baseName,
+            status: 'Draft',
+            json: importedDraft ?? undefined,
+          });
           setImportOpen(false);
           onOpenDraft(draft.id);
         }}
